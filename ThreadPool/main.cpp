@@ -34,8 +34,8 @@ int main()
 	//auto Math = Threadpool::get().Async(TestAsyncSquared, std::move(1));
 	auto FutureTest = Threadpool::get().Async(Test_myFuture);
 
-	
-    Print(FutureTest.get());
+	auto status = FutureTest.wait_for(std::chrono::seconds(10));
+    Print((int)status);
 
 
     while (Threadpool::get().is_Alive())
@@ -89,5 +89,6 @@ int TestRecursion(int _counter)
 
 int Test_myFuture()
 {
+	while(1){}
 	return rand() % 1000;
 }

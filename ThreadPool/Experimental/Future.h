@@ -77,7 +77,7 @@ struct State
 		{}
 		bool operator()() const
 		{
-			return State->Ready != 0;
+			return tempState->Ready != 0;
 		}
 		const State* tempState;
 	};
@@ -137,8 +137,38 @@ struct State
 		}
 	}
 
-	template <class   _Rep, class _Per> void   wait_for(const std::chrono::duration  <  _Rep, _Per>& _relTime)  { DPrint(CON_Red, "Incomplete wait_for");	}
-	template <class _Clock, class _Dur>	void wait_until(const std::chrono::time_point<_Clock, _Dur>& _Abs_time) { DPrint(CON_Red, "Incomplete wait_until"); }
+	template<class _Rep,class _Period>
+	future_status wait_for(const std::chrono::duration<_Rep, _Period>& _relativeTime)
+	{	// wait for duration
+		Lock_t Lock(Mtx);
+		if (hasDeferredFunction())
+		{
+			return (future_status::deferred);
+		}
+		if (CV.wait_for(Lock, _relativeTime, testReady(this)))
+		{
+			return (future_status::ready);
+		}
+		return (future_status::timeout);
+	}
+
+	template<class _Clock,	class _Duration>
+	future_status wait_until(const std::chrono::time_point<_Clock, _Duration>& _absoluteTime)
+	{	// wait until time point
+		Lock_t Lock(Mtx);
+		if (hasDeferredFunction())
+		{//Has_deferred_function())
+			return (future_status::deferred);
+		}
+		if (CV.wait_until(Lock, _absoluteTime, testReady(this)))
+		{
+			return (future_status::ready);
+		}
+		return (future_status::timeout);
+	}
+
+
+
 	//===============================================================================
 
 	//==================== GET && SET ===============================================
@@ -220,6 +250,10 @@ struct State
 	static State<_Ty>& make_New() { DPrint(CON_Green, "make_New() called in State"); return new State<_Ty>(); }
 
 	virtual void RunDeferred(Lock_t&) { }// Print("This is where we might be able to place call chains or co-routine like functions"); }// Derive behavior
+	virtual bool hasDeferredFunction() const noexcept
+	{// Not sure how exactly I want to implement this so for now I will model after STL
+		return (hasDeferred);
+	}
 	void CheckDeferredFunction(Lock_t& _lock)
 	{
 		if (!Running)
@@ -228,6 +262,8 @@ struct State
 			RunDeferred(_lock);
 		}
 	}
+
+
 	void Abandon()
 	{
 		Lock_t _Lock{ Mtx };
@@ -239,7 +275,7 @@ struct State
 	}
 	void DeleteThis()
 	{
-		DPrint(CON_Red, "DeleteThis called from State");
+		DPrint(CON_Red, "Delete This called from State");
 		delete this;
 	}
 	//===============================================================================
@@ -255,6 +291,9 @@ struct State
 	bool hasResult;
 	bool Running;
 	bool getOnce{ false };
+
+	// Not sure if I want to do it like this yet....
+	bool hasDeferred{ false };
 
 	State(const State&) = delete;
 	State& operator=(const State&) = delete;
@@ -339,14 +378,16 @@ struct SharedState
 	//===============================================================================
 	/* Test to see if the State exist and has not been Retrieved already when getOnce
 	was requested */
-	bool valid()
+	[[nodiscard]] bool valid()
 	{
 		return MyState && !(getOnce && MyState->alreadyRetrieved());
 	}
+
 	//=========================================================================== 
 
 
-	//====================== SUSPENDERS ============================================= 
+	//====================== SUSPENDERS =========================================
+
 	/* Suspends Threads execution until Future State is fullfilled */
 	void wait() const
 	{
@@ -357,12 +398,33 @@ struct SharedState
 		}
 		MyState->wait();
 	}
-	/* Wait on a Future State until a given amount of time has passed
-	INCOMPLETE PLEASE FINISH */
-	template <class   _Rep, class _Per> void   wait_for(const std::chrono::duration<_Rep, _Per>& _relTime) {}
-	/* Waits on a Future State until an Absolute time is reached
-	INCOMPLETE PLEASE FINISH */
-	template <class _Clock, class _Dur> void wait_until(const std::chrono::time_point<_Clock, _Dur>& _Abs_time) {}
+                                                                      
+	/* Wait on a Future State until a given amount of time has passed */
+	template <class   _Rep, class _Period>	
+	future_status wait_for(const std::chrono::duration<_Rep, _Period>& _relativeTime) 
+	{	// wait for duration
+		if (!this->valid())
+		{// HERE
+			Print("Waiting on Future with No State");//	 Make this into Error handling which only in Debug mode
+			__debugbreak();
+		}
+		
+		return (MyState->wait_for(_relativeTime));
+	}
+
+	/* Waits on a Future State until an Absolute time is reached */
+	template<class _Clock,	class _Duration> 
+	future_status wait_until(const std::chrono::time_point<_Clock, _Duration>& _absoluteTime) const
+	{	// wait until time point
+		if (!valid())
+		{
+			Print("Waiting on a Future with No State ");
+			__debugbreak();
+		}
+		return (MyState->wait_until(_absoluteTime));
+	}
+
+
 	//===============================================================================
 
 	//======================= GET && SET =================================================
@@ -376,6 +438,7 @@ struct SharedState
 		}
 		return MyState->get_value();
 	}
+
 	/* Sets the Value in our Future State */
 	void set_value(const _Ty& _val)
 	{
@@ -385,6 +448,7 @@ struct SharedState
 		}
 		MyState->set_value(_val);
 	}
+
 	/* Sets the Value in our Future State via forward reference */
 	void set_value(_Ty&& _val)
 	{
@@ -395,6 +459,7 @@ struct SharedState
 		}
 		MyState->set_value(std::forward<_Ty>(_val));
 	}
+
 	//===============================================================================
 	/* Throws away this Reference to our */
 	/// Properly Manage the Reference Count I believe this is incorrect
@@ -406,11 +471,13 @@ struct SharedState
 			MyState->Abandon();
 		}
 	}
+
 	/* Get a pointer to our Shared State object */
 	State<_Ty>* _Pointer() const
 	{
 		return MyState;
 	}
+
 	//===============================================================================
 
 
@@ -420,6 +487,7 @@ struct SharedState
 	{
 		std::swap(MyState, _other.MyState);
 	}
+
 	/* Copies _other State object into this Shared State Tracking our Reference */
 	void Copy(const SharedState& _other)
 	{
@@ -441,6 +509,7 @@ struct SharedState
 			}
 		}
 	}
+
 	/* Move _other State into this Container */
 	void Move(SharedState& _other)
 	{
@@ -461,8 +530,7 @@ struct SharedState
 	//=================== SIGNALS && STATE ==========================================
 	/* Test if our Promise has set the State for our future */
 	bool isReady()
-	{
-		/// Possibly minor optimization removing Test for Null State
+	{/// Possibly minor optimization removing Test for Null State
 		return MyState && MyState->isReady();
 	}
 
