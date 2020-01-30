@@ -13,6 +13,9 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="Source Files\Experimental">
+      <UniqueIdentifier>{10c5a70d-d097-4940-aae2-bf911931f45c}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -21,10 +24,16 @@
     <ClCompile Include="Threadpool.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Experimental\Future.cpp">
+      <Filter>Source Files\Experimental</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Threadpool.h">
       <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Experimental\Future.h">
+      <Filter>Source Files\Experimental</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

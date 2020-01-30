@@ -4,6 +4,7 @@
 int StaticCounter; 
 int TestRecursion(int _counter);
 int TestAsyncSquared(int _in);
+int Test_myFuture();
 
 
 /* ===============================================================================================================================================
@@ -30,8 +31,11 @@ int RecursionLevel = 8;
 int main()
 {
     //Threadpool::get().Async(TestRecursion, std::move(RecursionLevel)); // Recursive function with other functions in the Pool also will lock up the TP prematurely
-    auto Math = Threadpool::get().Async(TestAsyncSquared, std::move(20));
-    Print(Math.get());
+	//auto Math = Threadpool::get().Async(TestAsyncSquared, std::move(1));
+	auto FutureTest = Threadpool::get().Async(Test_myFuture);
+
+	
+    Print(FutureTest.get());
 
 
     while (Threadpool::get().is_Alive())
@@ -49,7 +53,12 @@ int impl_TestAsyncSquared(int _in)
 int TestAsyncSquared(int _in)
 {
     /* Create an Array of Futures */
-    std::future<int> *Result = new std::future<int>[_in];
+#ifdef _EXPERIMENTAL
+	Future<int> *Result = new Future<int>[_in];
+#else
+	std::future<int> *Result = new std::future<int>[_in];
+#endif
+
     for (int i{ 0 }; i < _in; ++i)
     {
          Result[i] = Threadpool::get().Async(impl_TestAsyncSquared, std::move(i));
@@ -74,4 +83,11 @@ int TestRecursion(int _counter)
     Print("Exiting TestRecursion: " << StaticCounter);
     Threadpool::get().Terminate();
     return StaticCounter++;
+}
+
+
+
+int Test_myFuture()
+{
+	return rand() % 1000;
 }

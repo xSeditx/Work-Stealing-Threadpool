@@ -44,6 +44,7 @@
 
 #include <thread>
 #include <future>
+#include"Experimental/Future.h"
 #include <deque>
 #include <tuple>
 #include <iostream>
@@ -73,7 +74,9 @@ Class_X(const Class_X&) = delete
 
 /* Just to do basic debug logging to the console protected with a Mutex to avoid Slicing of the Text*/
 extern std::mutex PrintMtx;
-#define Print(x)  PrintMtx.lock(); std::cout << x << "\n"; PrintMtx.unlock();
+#ifndef Print
+#    define Print(x)  PrintMtx.lock(); std::cout << x << "\n"; PrintMtx.unlock();
+#endif
 #define _static // Just used to aid in code understanding
 //======================================================================================
 /* ==================================================================================================================================== */
@@ -162,7 +165,11 @@ class Threadpool
         using Fptr = type(*)(ARGS...);                             // Function pointer type for our function
         const Fptr Function;                                       // Pointer to our Function
         const std::tuple<ARGS...> Arguments;                       // Tuple which Binds the Parameters to the Function call				
-        std::promise<type> ReturnValue;                            // Return Value of our function stored as a Promise
+#ifdef _EXPERIMENTAL
+		Promise<type> ReturnValue;
+#else
+		std::promise<type> ReturnValue;                            // Return Value of our function stored as a Promise
+#endif
     };// End asyncTask Class
 
 
@@ -250,6 +257,30 @@ public:
 
     /* Executor for our Threadpool Allocating our Asyncronous objects,
     /* returning their Futures an handles work sharing throughout all the available Queues */
+#ifdef _EXPERIMENTAL
+	template<typename _FUNC, typename...ARGS >
+	auto Async(_FUNC&& _func, ARGS&&... args)->Future<typename asyncTask<_FUNC, ARGS... >::type>
+	{// Accept arbitrary Function signature, Bind its arguments and add to a Work pool for Asynchronous execution
+
+		auto _function = new asyncTask<_FUNC, ARGS... >(std::move(_func), std::forward<ARGS>(args)...);  // Create our task which binds the functions parameters
+		auto result = _function->get_future(); // Get the future of our async task for later use
+		auto i = Index++;// Increases the first thread we test by one each call ensuring better work distribution
+
+		int Attempts = 5;// Ensure fair work distribution
+		for (unsigned int n{ 0 }; n != ThreadCount * Attempts; ++n) // Attempts is Tunable for better work distribution
+		{// Cycle over all Queues K times and attempt to push our function to one of them
+
+			if (ThreadQueue[static_cast<size_t>((i + n) % ThreadCount)].try_push(static_cast<Executor*>(_function)))
+			{// If succeeded return our functions Future
+				return result;
+			}
+		}
+
+		// In the rare instance that all attempts at adding work fail just push it to the Owned Queue for this thread
+		ThreadQueue[i % ThreadCount].push(static_cast<Executor*>(_function));
+		return result;
+	}
+#else
     template<typename _FUNC, typename...ARGS >
     auto Async(_FUNC&& _func, ARGS&&... args)->std::future<typename asyncTask<_FUNC, ARGS... >::type>
     {// Accept arbitrary Function signature, Bind its arguments and add to a Work pool for Asynchronous execution
@@ -272,6 +303,7 @@ public:
         ThreadQueue[i % ThreadCount].push(static_cast<Executor*>(_function));
         return result;
     }
+#endif
 }; // End ThreadPool Class
 
 
