@@ -49,7 +49,7 @@
 #include <tuple>
 #include <iostream>
 #include <type_traits> 
-
+#include <setjmp.h>
 /* Ensure we have access to C++ 17 functionality */
 #if !_HAS_CXX17
 #    error " C++ 17 functionality needed Please enable C++ Language Standard /std::c++17"
@@ -172,6 +172,69 @@ class Threadpool
 #endif
     };// End asyncTask Class
 
+
+
+	template<typename _Func, typename ...ARGS>
+	struct suspendPoint final
+		: public Executor
+	{
+		NO_COPY_OR_ASSIGNMENT(asyncTask);
+
+	public:
+		using type = std::invoke_result_t<_Func, ARGS...>; // Trying this to avoid C++ 17 Return type of our function
+
+		virtual ~suspendPoint() noexcept = default; // Virtual destructor to ensure proper Deallocation of object
+
+		/* Accepts Functions and their arguments */
+		suspendPoint(_Func&& _function, ARGS&&... _args) noexcept
+			:
+			Function(std::forward<_Func>(_function)),
+			Arguments(std::forward<ARGS>(_args)...)
+		{// Signals to user the object is now completed and valid
+			Status = Valid;
+			if (set_jmp(Context) != 1)
+			{
+				Print("Setting the Jump");
+
+				ReturnValue.set_value(Function(Arguments));
+			}
+			else {
+				Print("Returning from the Jump");
+			}
+		}
+
+
+		/*     Calls the Objects Stored function along with its parameters using std::apply
+		/*	Sets the value of the Promise and signals to the User that the value is waiting */
+		virtual void Invoke() noexcept override
+		{
+			Status = Busy;
+			longjmp(Context, 1);
+			//auto result = std::apply(Function, Arguments);
+			//ReturnValue.set_value(result);
+			Status = Waiting;
+		}
+
+		/*      To ensure familiarity and usability get_future works to retrieve the
+			std::future object associated with the return values std::promise */
+		auto get_future() noexcept
+		{
+			Status = Submitted;
+			return ReturnValue.get_future();
+		}
+
+	private:
+		jmp_buf Context;
+		using Fptr = type(*)(ARGS...);                             // Function pointer type for our function
+		const Fptr Function;                                       // Pointer to our Function
+		const std::tuple<ARGS...> Arguments;                       // Tuple which Binds the Parameters to the Function call				
+#ifdef _EXPERIMENTAL
+		Promise<type> ReturnValue;
+#else
+		std::promise<type> ReturnValue;                            // Return Value of our function stored as a Promise
+#endif
+		//https://www.ibm.com/support/knowledgecenter/SSLTBW_2.1.0/com.ibm.zos.v2r1.bpxbd00/r0stjm.htm
+	};
 
 public:
 

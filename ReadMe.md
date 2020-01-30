@@ -104,4 +104,7 @@ https://code.woboq.org/llvm/libcxx/include/type_traits.html																<br>
 https://docs.microsoft.com/en-us/cpp/parallel/concrt/task-scheduler-concurrency-runtime?view=vs-2019					<br>
 																														<br>
 ### Simple Threadpool Implementation:																					<br>
-https://riptutorial.com/cplusplus/example/15806/create-a-simple-thread-pool												<br>
+https://riptutorial.com/cplusplus/example/15806/create-a-simple-thread-pool												<br> 
+																														<br> 
+### Good Coding video website. 																							<br> 
+https://channel9.msdn.com/Browse/AllContent																				<br> 
