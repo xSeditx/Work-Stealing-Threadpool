@@ -38,7 +38,7 @@ int main()
     Print((int)status);
 	 
 
-    while (Threadpool::get().is_Alive()) 
+    while (Threadpool::get().is_Alive())  
     {/* Just something to prevent premature shut down while we test the Threadpool */}
     return 0;
 }

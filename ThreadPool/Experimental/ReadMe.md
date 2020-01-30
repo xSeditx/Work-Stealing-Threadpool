@@ -21,6 +21,7 @@ Future& operator=(const Future&) | delete
 
     Type     |   Value Type
 -------------|------------------
-using BaseClass | SharedState<_Ty>
+using BaseClass | SharedState\< T \>
+ 
 
  
