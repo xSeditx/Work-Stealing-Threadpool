@@ -28,7 +28,7 @@ Threadpool::Threadpool()
 
 /* ============================================================ */
 
-
+int DEBUGVALUE{ 0 };
 
 
 /* ============================================================
@@ -252,3 +252,50 @@ Threadpool::~Threadpool()
 /* ============================================================ */
 
 #pragma warning( pop )
+
+
+
+ /*
+==========================================================================================================================================================================
+														   TRASH:
+==========================================================================================================================================================================
+*/
+/*
+
+
+
+	template<typename _Ty>
+	struct ContinuationFuture
+		:
+		public std::future<_Ty>
+	{
+		_Ty get()
+		{
+			Print("Continuation Future Get");
+		}
+	};
+
+	template<typename _Ty>
+	struct ContinuationPromise
+		:
+		public std::promise<_Ty>
+	{
+		auto get_future()
+		{
+			Print("Continuation Promise Get Future"); return std::move(RestorePoint);
+		}
+
+//_NODISCARD future<_Ty> get_future()
+//{	// return a future object that shares the associated
+//	// asynchronous state
+//	return (future<_Ty>(_MyPromise._Get_state_for_future(), _Nil()));
+//}
+//
+//void set_value(const _Ty& _Val)
+//{	// store result
+//	_MyPromise._Get_state_for_set()._Set_value(_Val, false);
+//}
+
+		ContinuationFuture<_Ty> RestorePoint;
+	};
+*/

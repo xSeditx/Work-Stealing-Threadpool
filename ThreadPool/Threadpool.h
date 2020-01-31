@@ -44,7 +44,7 @@
 
 #include <thread>
 #include <future>
-#include"Experimental/Future.h"
+//#include"Experimental/Future.h"
 #include <deque>
 #include <tuple>
 #include <iostream>
@@ -90,6 +90,48 @@ bool is_ready(std::future<_R> const& _fut)
 {
     return _fut.valid() ? _fut.wait_for(std::chrono::seconds(0)) == std::future_status::ready : false;
 }
+
+
+extern int DEBUGVALUE;
+
+
+template<typename _Ty>
+struct continuationFuture
+	: std::future<_Ty> 
+{
+	_Ty get() 
+	{
+		longjmp(Context, 1);
+		return get;
+	}
+
+	void set_context(jmp_buf &_context)
+	{
+		Context = _context;
+	}
+	jmp_buf Context;
+};
+
+template<typename _Ty>
+struct continuationPromise
+	: public std::promise<_Ty> 
+{
+	void set_context(jmp_buf &_context)
+	{
+		RestorePoint.set_context(_context);
+	}
+	auto get_future()
+	{
+		return RestorePoint;
+	}
+
+	continuationFuture<_Ty> RestorePoint;
+};
+
+
+
+
+
 
 
 
@@ -173,12 +215,12 @@ class Threadpool
     };// End asyncTask Class
 
 
-
 	template<typename _Func, typename ...ARGS>
 	struct suspendPoint final
 		: public Executor
 	{
-		NO_COPY_OR_ASSIGNMENT(asyncTask);
+		NO_COPY_OR_ASSIGNMENT(suspendPoint);
+		int DEBUGSTORE{ 0 };
 
 	public:
 		using type = std::invoke_result_t<_Func, ARGS...>; // Trying this to avoid C++ 17 Return type of our function
@@ -190,17 +232,11 @@ class Threadpool
 			:
 			Function(std::forward<_Func>(_function)),
 			Arguments(std::forward<ARGS>(_args)...)
-		{// Signals to user the object is now completed and valid
-			Status = Valid;
-			if (set_jmp(Context) != 1)
-			{
-				Print("Setting the Jump");
+		{ 
+			DEBUGSTORE = ++DEBUGVALUE;
 
-				ReturnValue.set_value(Function(Arguments));
-			}
-			else {
-				Print("Returning from the Jump");
-			}
+			Print("Suspend Point ctor " << DEBUGSTORE);
+			Status = Valid;
 		}
 
 
@@ -209,21 +245,44 @@ class Threadpool
 		virtual void Invoke() noexcept override
 		{
 			Status = Busy;
-			longjmp(Context, 1);
-			//auto result = std::apply(Function, Arguments);
-			//ReturnValue.set_value(result);
+		//	auto result = std::apply(Function, Arguments);
+			ReturnValue.set_value(result);
 			Status = Waiting;
-		}
+		    
+ 			Print("Calling Long Jump " << DEBUGSTORE);
+ 		}
 
 		/*      To ensure familiarity and usability get_future works to retrieve the
 			std::future object associated with the return values std::promise */
 		auto get_future() noexcept
 		{
 			Status = Submitted;
+			memset(&Context, 0, sizeof(jmp_buf));
+			if (setjmp(*((jmp_buf*)&Buffer)) != 1)//Context
+			{
+				memcpy(&Context, &Buffer, sizeof(jmp_buf));
+				Print("Setting the Jump " << DEBUGSTORE);
+				ReturnValue.set_value(Context);
+				std::apply(Function, Arguments)
+			}
+			else
+			{
+				Print("Returning from the Jump " << DEBUGSTORE);
+			}
+
 			return ReturnValue.get_future();
 		}
 
+		/* gshandlereh.cpp 
+		__CxxFrameHandler3(
+                            ExceptionRecord,
+                            EstablisherFrame,
+                            ContextRecord,
+                            DispatcherContext
+                            ); */
+
 	private:
+		_JUMP_BUFFER Buffer{};
 		jmp_buf Context;
 		using Fptr = type(*)(ARGS...);                             // Function pointer type for our function
 		const Fptr Function;                                       // Pointer to our Function
@@ -231,7 +290,9 @@ class Threadpool
 #ifdef _EXPERIMENTAL
 		Promise<type> ReturnValue;
 #else
-		std::promise<type> ReturnValue;                            // Return Value of our function stored as a Promise
+		//std::promise<type>
+		//ContinuationPromise<type> ReturnValue;                            // Return Value of our function stored as a Promise
+	    continuationPromise<type> ReturnValue;
 #endif
 		//https://www.ibm.com/support/knowledgecenter/SSLTBW_2.1.0/com.ibm.zos.v2r1.bpxbd00/r0stjm.htm
 	};
@@ -324,47 +385,90 @@ public:
 	template<typename _FUNC, typename...ARGS >
 	auto Async(_FUNC&& _func, ARGS&&... args)->Future<typename asyncTask<_FUNC, ARGS... >::type>
 	{// Accept arbitrary Function signature, Bind its arguments and add to a Work pool for Asynchronous execution
-
-		auto _function = new asyncTask<_FUNC, ARGS... >(std::move(_func), std::forward<ARGS>(args)...);  // Create our task which binds the functions parameters
-		auto result = _function->get_future(); // Get the future of our async task for later use
 		auto i = Index++;// Increases the first thread we test by one each call ensuring better work distribution
-
 		int Attempts = 5;// Ensure fair work distribution
-		for (unsigned int n{ 0 }; n != ThreadCount * Attempts; ++n) // Attempts is Tunable for better work distribution
-		{// Cycle over all Queues K times and attempt to push our function to one of them
 
-			if (ThreadQueue[static_cast<size_t>((i + n) % ThreadCount)].try_push(static_cast<Executor*>(_function)))
-			{// If succeeded return our functions Future
-				return result;
+		if(std::this_thread::get_id() != Main_ThreadID)
+		{
+			auto _function = new suspendPoint<_FUNC, ARGS... >(std::move(_func), std::forward<ARGS>(args)...);  // Create our task which binds the functions parameters
+			auto result = _function->get_future(); // Get the future of our async task for later use
+
+			for (unsigned int n{ 0 }; n != ThreadCount * Attempts; ++n) // Attempts is Tunable for better work distribution
+			{// Cycle over all Queues K times and attempt to push our function to one of them
+
+				if (ThreadQueue[static_cast<size_t>((i + n) % ThreadCount)].try_push_front(static_cast<Executor*>(_function)))
+				{// If succeeded return our functions Future
+					return result;
+				}
 			}
-		}
 
-		// In the rare instance that all attempts at adding work fail just push it to the Owned Queue for this thread
-		ThreadQueue[i % ThreadCount].push(static_cast<Executor*>(_function));
-		return result;
+			ThreadQueue[i % ThreadCount].push_front(static_cast<Executor*>(_function));
+			return result;
+		}
+		else
+		{
+			auto _function = new asyncTask<_FUNC, ARGS... >(std::move(_func), std::forward<ARGS>(args)...);  // Create our task which binds the functions parameters
+			auto result = _function->get_future(); // Get the future of our async task for later use
+
+			for (unsigned int n{ 0 }; n != ThreadCount * Attempts; ++n) // Attempts is Tunable for better work distribution
+			{// Cycle over all Queues K times and attempt to push our function to one of them
+
+				if (ThreadQueue[static_cast<size_t>((i + n) % ThreadCount)].try_push(static_cast<Executor*>(_function)))
+				{// If succeeded return our functions Future
+					return result;
+				}
+			}
+
+			// In the rare instance that all attempts at adding work fail just push it to the Owned Queue for this thread
+			ThreadQueue[i % ThreadCount].push(static_cast<Executor*>(_function));
+			return result;
+		}
 	}
 #else
-    template<typename _FUNC, typename...ARGS >
-    auto Async(_FUNC&& _func, ARGS&&... args)->std::future<typename asyncTask<_FUNC, ARGS... >::type>
-    {// Accept arbitrary Function signature, Bind its arguments and add to a Work pool for Asynchronous execution
+	template<typename _FUNC, typename...ARGS >
+	auto Async(_FUNC&& _func, ARGS&&... args)->std::future<typename asyncTask<_FUNC, ARGS... >::type>
+	{// Accept arbitrary Function signature, Bind its arguments and add to a Work pool for Asynchronous execution
+		auto i = Index++;// Increases the first thread we test by one each call ensuring better work distribution
+		int Attempts = 5;// Ensure fair work distribution
 
-        auto _function = new asyncTask<_FUNC, ARGS... >(std::move(_func), std::forward<ARGS>(args)...);  // Create our task which binds the functions parameters
-        auto result = _function->get_future(); // Get the future of our async task for later use
-        auto i = Index++;// Increases the first thread we test by one each call ensuring better work distribution
+		if (std::this_thread::get_id() != Main_ThreadID)
+		{
+			auto _function = new suspendPoint<_FUNC, ARGS... >(std::move(_func), std::forward<ARGS>(args)...);  // Create our task which binds the functions parameters
+			//auto result = _function->get_future(); // Get the future of our async task for later use
 
-        int Attempts = 5;// Ensure fair work distribution
-        for (unsigned int n{ 0 }; n != ThreadCount * Attempts; ++n) // Attempts is Tunable for better work distribution
-        {// Cycle over all Queues K times and attempt to push our function to one of them
+			for (unsigned int n{ 0 }; n != ThreadCount * Attempts; ++n) // Attempts is Tunable for better work distribution
+			{// Cycle over all Queues K times and attempt to push our function to one of them
 
-            if (ThreadQueue[static_cast<size_t>((i + n) % ThreadCount)].try_push(static_cast<Executor*>(_function)))
-            {// If succeeded return our functions Future
-                return result;
-            }
-        }
+				if (ThreadQueue[static_cast<size_t>((i + n) % ThreadCount)].try_push_front(static_cast<Executor*>(_function)))
+				{// If succeeded return our functions Future
+					return  _function->get_future();// result;
+				}
+			}
 
-        // In the rare instance that all attempts at adding work fail just push it to the Owned Queue for this thread
-        ThreadQueue[i % ThreadCount].push(static_cast<Executor*>(_function));
-        return result;
+			ThreadQueue[i % ThreadCount].push_front(static_cast<Executor*>(_function));
+			return  _function->get_future();// result;
+		}
+		else
+		{
+
+			auto _function = new asyncTask<_FUNC, ARGS... >(std::move(_func), std::forward<ARGS>(args)...);  // Create our task which binds the functions parameters
+			auto result = _function->get_future(); // Get the future of our async task for later use
+			auto i = Index++;// Increases the first thread we test by one each call ensuring better work distribution
+
+			int Attempts = 5;// Ensure fair work distribution
+			for (unsigned int n{ 0 }; n != ThreadCount * Attempts; ++n) // Attempts is Tunable for better work distribution
+			{// Cycle over all Queues K times and attempt to push our function to one of them
+
+				if (ThreadQueue[static_cast<size_t>((i + n) % ThreadCount)].try_push(static_cast<Executor*>(_function)))
+				{// If succeeded return our functions Future
+					return result;
+				}
+			}
+
+			// In the rare instance that all attempts at adding work fail just push it to the Owned Queue for this thread
+			ThreadQueue[i % ThreadCount].push(static_cast<Executor*>(_function));
+			return result;
+		}
     }
 #endif
 }; // End ThreadPool Class

@@ -217,6 +217,13 @@ struct State
 		Lock_t Lock(Mtx);
 		set_raw_value(std::forward<_Ty>(_val), &Lock);
 	}
+	/* WARNING... This is JUST A HACK. Likely need Specialization for State<_Ty&> but this works for now */
+	void set_value(_Ty&& _val)
+	{ // store a result
+		Lock_t Lock(Mtx);
+		set_raw_value(std::forward<_Ty&>(_val), &Lock);
+	}
+
 	void set_raw_value(const _Ty&& _val, Lock_t* _lock) {
 		if (hasResult)
 		{

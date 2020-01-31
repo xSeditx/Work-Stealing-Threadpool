@@ -30,7 +30,7 @@ int RecursionLevel = 8;
 
 int main()
 {
-    //Threadpool::get().Async(TestRecursion, std::move(RecursionLevel)); // Recursive function with other functions in the Pool also will lock up the TP prematurely
+    Threadpool::get().Async(TestRecursion, std::move(RecursionLevel)); // Recursive function with other functions in the Pool also will lock up the TP prematurely
 	//auto Math = Threadpool::get().Async(TestAsyncSquared, std::move(1));
 	auto FutureTest = Threadpool::get().Async(Test_myFuture);
 
