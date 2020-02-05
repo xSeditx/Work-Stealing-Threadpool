@@ -76,6 +76,9 @@
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
       <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <BasicRuntimeChecks>UninitializedLocalUsageCheck</BasicRuntimeChecks>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -131,6 +134,7 @@
     <ClCompile Include="Threadpool.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="CilkImplementationExamples.h" />
     <ClInclude Include="Experimental\Future.h" />
     <ClInclude Include="Threadpool.h" />
   </ItemGroup>

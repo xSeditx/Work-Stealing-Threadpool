@@ -1,10 +1,13 @@
 #include"Threadpool.h"
 
-//#include<stdio.h>
-
+ 
 #pragma warning( push )
 #pragma warning( disable : 4244 )
 #pragma warning( disable : 4018 ) // Optimization off warning of mine
+
+thread_local uint32_t LocalThreadID{ 0 };
+uint32_t ThreadCounter{ 0 };
+jmp_buf ContextArray[16];
 
 _static std::atomic<int> Threadpool::RunningThreads{ 0 };
 std::mutex PrintMtx;
@@ -30,34 +33,46 @@ Threadpool::Threadpool()
 
 int DEBUGVALUE{ 0 };
 
+uint32_t *DebugStack = nullptr;
+char     *DebugStackchar = nullptr;
+uint64_t *DebugStack64bit = nullptr;
 
 /* ============================================================
  *                    Executors
  * ============================================================ */
 void Threadpool::Run(unsigned int _i)
 { // Initializes Thread and starts the Queue running 
+	LocalThreadID = ThreadCounter++;
 
     while (true)
     {// Constantly run until application or user shuts it down
 
         Executor* Function{ nullptr };
 
-        for (unsigned int N{ 0 }; N != ThreadCount; ++N)
-        {// Cycle over all available Queues until one returns some work 
+        if (!setjmp(ContextArray[LocalThreadID]))
+        {
+            for (unsigned int N{ 0 }; N != ThreadCount; ++N)
+            {// Cycle over all available Queues until one returns some work 
 
-            if (ThreadQueue[static_cast<size_t>((_i + N) % ThreadCount)].try_Pop(Function))
-            {// If Queue N succeeded at returning a function break the for loop and run the function
+                if (ThreadQueue[static_cast<size_t>((_i + N) % ThreadCount)].try_Pop(Function))
+                {// If Queue N succeeded at returning a function break the for loop and run the function
+                    break;
+                }
+            }
+
+            if (!Function && !ThreadQueue[_i].pop(Function))
+            {// If there is no Function and the Queue fails to Pop it means that it is quiting time
                 break;
             }
-        }
 
-        if (!Function && !ThreadQueue[_i].pop(Function))
-        {// If there is no Function and the Queue fails to Pop it means that it is quiting time
-            break;
+            Print("Invoking function from Run " << typeid(*Function).name());
+            Function->Invoke();  // Invoke the returned function
+            Print("Returned from Runs Invoke" << typeid(*Function).name());
+            delete &(*Function); // Destroy the Object which our Async Class Allocated
         }
-
-        Function->Invoke();  // Invoke the returned function
-        delete &(*Function); // Destroy the Object which our Async Class Allocated
+        else {
+            Print("Returned into the Run Function -----------------------------------");
+        }
     }
 
     Alive = false;
@@ -251,6 +266,82 @@ Threadpool::~Threadpool()
 
 /* ============================================================ */
 
+
+
+
+
+
+
+
+
+void _cdecl Enter_frame(StackFrame *sf)
+{
+    Enter_frame_internal(sf, 0);
+}
+
+void _cdecl Enter_frame_1(StackFrame *sf)
+{
+    Enter_frame_internal(sf, 1);
+    sf->Reserved = 0;
+}
+void _cdecl Enter_frame_fast(StackFrame *sf)
+{
+    Enter_frame_fast_internal(sf, 0);
+}
+
+void _cdecl  Enter_frame_fast_1(StackFrame *sf)
+{
+    Enter_frame_fast_internal(sf, 1);
+    sf->Reserved = 0;
+}
+#include<Windows.h>
+void* Get_current_thread_id(void)
+{
+    return (void*)(size_t)GetCurrentThreadId();
+}
+
+int  Get_Hardware_CPU_Count(void)
+{
+    static int active_processors = 0;
+    SYSTEM_INFO info;
+
+    // If we've already done this, just return the value we calculated last
+    // time.  It's not going to change...
+    if (active_processors > 0)
+        return active_processors;
+
+    // If we've got a function to count up all the processors across all the
+    // processor groups, use it.  It will return 0 if it fails.
+    //  win_init_processor_groups();
+    //  if (NULL != s_pfnGetActiveProcessorCount)
+    //  {
+    //  	active_processors =
+    //  		s_pfnGetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+    //  	if (active_processors > 0)
+    //  		return active_processors;
+    //  }
+
+    // Use the old function to ask Windows for the number of processors in the
+    // system.  If this is an older OS, then there's no concept of processor
+    // groups, and this is the total number of processors.  If this OS supports
+    // >64 processors, and GetActiveProcessorCount returned an error, returning
+    // the number of processors in the group this thread is executing on is the
+    // best we can do
+    info.dwNumberOfProcessors = 0;
+    GetSystemInfo(&info);
+
+    active_processors = info.dwNumberOfProcessors;
+
+    return active_processors;
+}
+
+
+
+
+
+
+
+
 #pragma warning( pop )
 
 
@@ -298,4 +389,98 @@ Threadpool::~Threadpool()
 
 		ContinuationFuture<_Ty> RestorePoint;
 	};
+
+
+
+
+
+
+
+		/* gshandlereh.cpp
+		__CxxFrameHandler3(
+							ExceptionRecord,
+							EstablisherFrame,
+							ContextRecord,
+							DispatcherContext
+							);
+
+
+
+
+			//if (setjmp(*((jmp_buf*)&Buffer)) != 1)//Context
+			//{
+			//	memcpy(&Context, &Buffer, sizeof(jmp_buf));
+			//	ReturnValue.set_value(Context);
+			//}
+			//else
+			//{
+			//	Print("Returning from the Jump " << DEBUGSTORE);
+			//}
+
+
+
+
+				Print("Created Context");
+
+				Print("Returned from Child Function Call");
+
+				if (Stolen == true)
+				{
+					Print("Returned from Child After being stolen");
+				}
+				else
+				{
+					Print("Returned from Child Before being stolen");
+				}
+				Print("Returning From Jump Call");
+				if (FinishedChild == true)
+				{
+					Print("Calling after child function had returned");
+				}
+				else
+				{
+					Print("Calling before child function had returned");
+				}
+
+		__forceinline void CreateSuspendPoint()
+		{
+			if (setjmp(Context) != 1)
+			{
+				Print("Suspend Context Set");
+			}
+			else
+			{
+				Print("Suspend Context Returned");
+			}
+		}
+
+
+
+//void InvokeChildProcess()
+//{
+//	Print("Invoking the Child now");
+//	ReturnValue.set_value(std::apply(Function, Arguments));
+//	Print("Returning from child now");
+//	FinishedChild = true;
+//}
+
+// ContextArray[LocalThreadID]->Part[0];
+			//	Context[0] = B2.Esp;// ContextArray[LocalThreadID]->Part[0];
+			//	Context->
+				
+				//Buffer.Rsp = C2.
+
+uint64_t Frame = Context.[0].Part[0];
+uint64_t SP =    Context.[1].Part[0];
+uint64_t BP =    Context.[1].Part[1];
+uint64_t DI =    Context.[2].Part[1];
+uint64_t IP =    Context.[5].Part[0];
+uint64_t MxCsr = Context.[5].Part[1];
 */
+
+//Frame = (void*)_function->Context[0].Part[0];
+//SP = _function->Context[1].Part[0];
+//BP = _function->Context[1].Part[1];
+//DI = _function->Context[2].Part[1];
+//IP = _function->Context[5].Part[0];
+//MxCsr = _function->Context[5].Part[1];

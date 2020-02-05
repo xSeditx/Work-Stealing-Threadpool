@@ -5,6 +5,7 @@ int StaticCounter;
 int TestRecursion(int _counter);
 int TestAsyncSquared(int _in);
 int Test_myFuture();
+int MimicMergeSort(int _value);
 
 
 /* ===============================================================================================================================================
@@ -26,19 +27,21 @@ int Test_myFuture();
 /*  
 /* ===============================================================================================================================================*/
 
-int RecursionLevel = 8;
+int RecursionLevel = 80;
+
 
 int main()
 {
-    Threadpool::get().Async(TestRecursion, std::move(RecursionLevel)); // Recursive function with other functions in the Pool also will lock up the TP prematurely
-	//auto Math = Threadpool::get().Async(TestAsyncSquared, std::move(1));
-	auto FutureTest = Threadpool::get().Async(Test_myFuture);
-
-	auto status = FutureTest.wait_for(std::chrono::seconds(10));
-    Print((int)status);
-	 
-
-    while (Threadpool::get().is_Alive())  
+	std::cout << "Main Thread: " << std::this_thread::get_id() << " \n"; 
+//	Print(std::this_thread::get_id());
+	auto A = Threadpool::get().Async(MimicMergeSort, std::move( RecursionLevel));
+// Threadpool::get().Async(TestRecursion, std::move(RecursionLevel)); // Recursive function with other functions in the Pool also will lock up the TP prematurely
+////auto Math = Threadpool::get().Async(TestAsyncSquared, std::move(1));
+//auto FutureTest = Threadpool::get().Async(Test_myFuture);
+//auto status = FutureTest.wait_for(std::chrono::seconds(10));
+//Print((int)status);
+//
+while (Threadpool::get().is_Alive())  
     {/* Just something to prevent premature shut down while we test the Threadpool */}
     return 0;
 }
@@ -73,14 +76,14 @@ int TestAsyncSquared(int _in)
 
 int TestRecursion(int _counter)
 {
-    Print("TestRecursion iteration :" << _counter);
+//    Print("TestRecursion iteration :" << _counter);
     if (--_counter > 0)
     {
         int Param = _counter;
         auto E = Threadpool::get().Async(TestRecursion, std::move( Param));
         return E.get();
     }
-    Print("Exiting TestRecursion: " << StaticCounter);
+ //   Print("Exiting TestRecursion: " << StaticCounter);
     Threadpool::get().Terminate();
     return StaticCounter++;
 }
@@ -89,6 +92,54 @@ int TestRecursion(int _counter)
 
 int Test_myFuture()
 {
-	while(1){}
+//	while(1){}
 	return rand() % 1000;
 }
+
+
+/* Hmmm Intrinsic CPU Timer... Nice
+  i = __rdtsc();
+  
+  Reads a Register
+  __int64 __readmsr(
+   int register
+);*/
+
+#include<stdio.h>
+int MimicMergeSort(int _value)
+{
+	std::cout << "Merge Value: " << _value;
+	if (_value < 2)
+	{
+		return _value;
+	}
+	int Half = (_value / 2);
+	std::cout << "Launching A from Merge "<< _value;
+	auto A = Threadpool::get().Async(MimicMergeSort, std::move(Half));
+//	std::printf("Launching B from Merge ");
+	auto B = Threadpool::get().Async(MimicMergeSort, std::move(Half));
+
+//	std::cout << "Getting A " << _value;
+	auto C = A.get();
+
+//	std::cout << "Getting B " << _value;
+	auto D = B.get();
+
+	return C + D;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+//
+//
+//int (__cdecl *const )(int &)'
+//int (__cdecl &)(uint32_t)

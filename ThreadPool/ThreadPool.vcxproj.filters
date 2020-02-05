@@ -35,5 +35,8 @@
     <ClInclude Include="Experimental\Future.h">
       <Filter>Source Files\Experimental</Filter>
     </ClInclude>
+    <ClInclude Include="CilkImplementationExamples.h">
+      <Filter>Source Files\Experimental</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
